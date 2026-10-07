@@ -33,6 +33,7 @@ import {
   YocoPaymentError,
   YocoErrorCode,
 } from "../types"
+import { fromCents, toCents } from "../utils/money"
 
 const YOCO_API = "https://payments.yoco.com/api"
 const MIN_AMOUNT_CENTS = 200 // R2.00 minimum
@@ -135,7 +136,7 @@ class YocoPaymentService extends AbstractPaymentProvider<YocoOptions> {
     const { amount, currency_code, context } = input
 
     try {
-      const amountInCents = Math.round(Number(amount))
+      const amountInCents = toCents(amount)
 
       // Validate amount
       if (amountInCents < MIN_AMOUNT_CENTS) {
@@ -201,10 +202,10 @@ class YocoPaymentService extends AbstractPaymentProvider<YocoOptions> {
     const { amount, currency_code, context } = input
 
     try {
-      const amountInCents = Math.round(Number(amount))
+      const amountInCents = toCents(amount)
 
-      if (amountInCents < 200) {
-        throw new Error("Minimum amount is R2.00")
+      if (amountInCents < MIN_AMOUNT_CENTS) {
+        throw new Error(`Minimum amount is R${MIN_AMOUNT_CENTS / 100}.00`)
       }
 
       if (currency_code.toUpperCase() !== "ZAR") {
@@ -308,7 +309,8 @@ class YocoPaymentService extends AbstractPaymentProvider<YocoOptions> {
 
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
     const id = input.data?.yocoCheckoutId as string
-    const refundAmount = input.amount ? Math.round(Number(input.amount)) : undefined
+    // Medusa passes major units; Yoco refunds in cents.
+    const refundAmount = input.amount ? toCents(input.amount) : undefined
 
     if (!id) {
       throw new YocoPaymentError("[Yoco] No checkout ID provided for refund", YocoErrorCode.API_ERROR)
@@ -393,12 +395,15 @@ class YocoPaymentService extends AbstractPaymentProvider<YocoOptions> {
 
     const sessionId = (event.payload.metadata?.session_id as string) || ""
 
+    // Yoco reports cents; Medusa expects major units.
+    const data = { session_id: sessionId, amount: fromCents(event.payload.amount) }
+
     if (event.type === "payment.succeeded") {
-      return { action: "authorized", data: { session_id: sessionId, amount: event.payload.amount } }
+      return { action: "authorized", data }
     }
 
     if (event.type === "payment.failed") {
-      return { action: "failed", data: { session_id: sessionId, amount: event.payload.amount } }
+      return { action: "failed", data }
     }
 
     return { action: "not_supported" }
