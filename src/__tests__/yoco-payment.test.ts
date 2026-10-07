@@ -206,4 +206,59 @@ describe("YocoPaymentService", () => {
       })
     })
   })
+
+  describe("Session id", () => {
+    const checkout = { id: "ch_1", redirectUrl: "https://pay.yoco.com/ch_1", status: "created" }
+
+    beforeEach(() => {
+      service = new YocoPaymentService({ logger: mockLogger }, {
+        secretKey: "sk_test_1234567890",
+        debug: false,
+      })
+    })
+
+    it("reads the session id from data.session_id on initiate", async () => {
+      const api = jest.fn().mockResolvedValue(checkout)
+      ;(service as any).api = api
+
+      const result = await service.initiatePayment({
+        amount: 10,
+        currency_code: "ZAR",
+        data: { session_id: "payses_1" },
+        context: {},
+      })
+
+      expect(api.mock.calls[0][2]).toMatchObject({
+        externalId: "payses_1",
+        metadata: { session_id: "payses_1" },
+      })
+      expect(api.mock.calls[0][3]).toBe("initiate-payses_1-1000")
+      expect(result.data).toMatchObject({ session_id: "payses_1" })
+    })
+
+    it("falls back to context.idempotency_key", async () => {
+      const api = jest.fn().mockResolvedValue(checkout)
+      ;(service as any).api = api
+
+      await service.updatePayment({
+        amount: 10,
+        currency_code: "ZAR",
+        data: {},
+        context: { idempotency_key: "payses_2" },
+      })
+
+      expect(api.mock.calls[0][2]).toMatchObject({ externalId: "payses_2" })
+    })
+
+    it("does not share an idempotency key when the session id is missing", async () => {
+      const api = jest.fn().mockResolvedValue(checkout)
+      ;(service as any).api = api
+      const input = { amount: 10, currency_code: "ZAR", context: {} }
+
+      await service.initiatePayment(input)
+      await service.initiatePayment(input)
+
+      expect(api.mock.calls[0][3]).not.toBe(api.mock.calls[1][3])
+    })
+  })
 })
