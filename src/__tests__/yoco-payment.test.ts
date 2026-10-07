@@ -134,7 +134,7 @@ describe("YocoPaymentService", () => {
 
     it("should reject amounts below minimum", async () => {
       const input = {
-        amount: 100, // R1.00 - below minimum
+        amount: 1, // R1.00 - below minimum
         currency_code: "ZAR",
         context: {},
       }
@@ -144,12 +144,66 @@ describe("YocoPaymentService", () => {
 
     it("should reject non-ZAR currency", async () => {
       const input = {
-        amount: 1000,
+        amount: 10,
         currency_code: "USD",
         context: {},
       }
 
       await expect(service.initiatePayment(input)).rejects.toThrow("Only ZAR currency is supported")
+    })
+  })
+
+  describe("Amount units", () => {
+    beforeEach(() => {
+      service = new YocoPaymentService({ logger: mockLogger }, {
+        secretKey: "sk_test_1234567890",
+        debug: false,
+      })
+    })
+
+    const checkout = { id: "ch_1", redirectUrl: "https://pay.yoco.com/ch_1", status: "created" }
+
+    it("sends Medusa major units to Yoco as cents when initiating", async () => {
+      const api = jest.fn().mockResolvedValue(checkout)
+      ;(service as any).api = api
+
+      await service.initiatePayment({ amount: 270.85, currency_code: "ZAR", context: {} })
+
+      expect(api.mock.calls[0][2]).toMatchObject({ amount: 27085 })
+    })
+
+    it("sends Medusa major units to Yoco as cents when updating", async () => {
+      const api = jest.fn().mockResolvedValue(checkout)
+      ;(service as any).api = api
+
+      await service.updatePayment({ amount: 10, currency_code: "ZAR", context: {}, data: {} })
+
+      expect(api.mock.calls[0][2]).toMatchObject({ amount: 1000 })
+    })
+
+    it("refunds in cents", async () => {
+      const api = jest.fn().mockResolvedValue({ refundId: "r_1", status: "successful", message: "ok" })
+      ;(service as any).api = api
+
+      await service.refundPayment({ amount: 50.5, data: { yocoCheckoutId: "ch_1" } })
+
+      expect(api.mock.calls[0][2]).toEqual({ amount: 5050 })
+    })
+
+    it("reports webhook amounts in major units", async () => {
+      const result = await service.getWebhookActionAndData({
+        data: {
+          type: "payment.succeeded",
+          payload: { amount: 27085, metadata: { session_id: "payses_1" } },
+        },
+        rawData: "",
+        headers: {},
+      } as any)
+
+      expect(result).toEqual({
+        action: "authorized",
+        data: { session_id: "payses_1", amount: 270.85 },
+      })
     })
   })
 })
