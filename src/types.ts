@@ -11,6 +11,7 @@ export const YocoOptionsSchema = z.object({
     .refine((val) => val.startsWith("sk_test_") || val.startsWith("sk_live_"), {
       message: "secretKey must start with 'sk_test_' or 'sk_live_'",
     }),
+  webhookSecret: z.string().min(1).optional(),
   debug: z.boolean().optional().default(false),
   successUrl: z.string().regex(/^https?:\/\/.+/, "successUrl must be a valid URL").optional(),
   cancelUrl: z.string().regex(/^https?:\/\/.+/, "cancelUrl must be a valid URL").optional(),

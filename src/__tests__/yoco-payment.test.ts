@@ -1,3 +1,4 @@
+import crypto from "crypto"
 import YocoPaymentService from "../services/yoco-payment"
 import { YocoOptionsSchema, YocoPaymentError, YocoErrorCode } from "../types"
 
@@ -190,21 +191,6 @@ describe("YocoPaymentService", () => {
       expect(api.mock.calls[0][2]).toEqual({ amount: 5050 })
     })
 
-    it("reports webhook amounts in major units", async () => {
-      const result = await service.getWebhookActionAndData({
-        data: {
-          type: "payment.succeeded",
-          payload: { amount: 27085, metadata: { session_id: "payses_1" } },
-        },
-        rawData: "",
-        headers: {},
-      } as any)
-
-      expect(result).toEqual({
-        action: "authorized",
-        data: { session_id: "payses_1", amount: 270.85 },
-      })
-    })
   })
 
   describe("Session id", () => {
@@ -259,6 +245,65 @@ describe("YocoPaymentService", () => {
       await service.initiatePayment(input)
 
       expect(api.mock.calls[0][3]).not.toBe(api.mock.calls[1][3])
+    })
+  })
+
+  describe("Webhooks", () => {
+    const SECRET = "whsec_" + Buffer.from("test-secret-bytes").toString("base64")
+
+    const signed = (body: string, secret = SECRET) => {
+      const id = "msg_1"
+      const timestamp = String(Math.floor(Date.now() / 1000))
+      const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64")
+      const sig = crypto.createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64")
+      return {
+        rawData: body,
+        data: JSON.parse(body),
+        headers: { "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": `v1,${sig}` },
+      } as any
+    }
+
+    const makeService = (webhookSecret?: string) =>
+      new YocoPaymentService({ logger: mockLogger }, {
+        secretKey: "sk_test_1234567890",
+        webhookSecret,
+        debug: false,
+      })
+
+    const succeeded = JSON.stringify({
+      type: "payment.succeeded",
+      payload: { amount: 27085, metadata: { session_id: "payses_1" } },
+    })
+
+    it("reports a verified webhook amount in major units", async () => {
+      const result = await makeService(SECRET).getWebhookActionAndData(signed(succeeded))
+
+      expect(result).toEqual({
+        action: "authorized",
+        data: { session_id: "payses_1", amount: 270.85 },
+      })
+    })
+
+    it("maps payment.failed to failed", async () => {
+      const body = succeeded.replace("payment.succeeded", "payment.failed")
+      const result = await makeService(SECRET).getWebhookActionAndData(signed(body))
+
+      expect(result.action).toBe("failed")
+    })
+
+    it("ignores a webhook with a bad signature", async () => {
+      const other = "whsec_" + Buffer.from("other").toString("base64")
+      const result = await makeService(SECRET).getWebhookActionAndData(signed(succeeded, other))
+
+      expect(result).toEqual({ action: "not_supported" })
+      expect(mockLogger.warn).toHaveBeenCalledWith("[Yoco] Webhook ignored: invalid signature")
+    })
+
+    it("ignores webhooks when no webhookSecret is configured", async () => {
+      const result = await makeService().getWebhookActionAndData(signed(succeeded))
+
+      expect(result).toEqual({ action: "not_supported" })
+      expect(mockLogger.warn).toHaveBeenCalledWith("[Yoco] Webhook ignored: no webhookSecret configured")
     })
   })
 })

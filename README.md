@@ -138,6 +138,7 @@ if (type === "order") {
 | Option       | Type      | Required | Description                                                                  |
 | ------------ | --------- | -------- | ---------------------------------------------------------------------------- |
 | `secretKey`  | `string`  | ✅       | Your Yoco secret key (sk_test_... or sk_live_...)                            |
+| `webhookSecret` | `string` | ❌ (required for webhooks) | Yoco webhook signing secret (`whsec_...`) |
 | `debug`      | `boolean` | ❌       | Enable debug logging (default: false)                                        |
 | `successUrl` | `string`  | ❌       | URL to redirect to after successful payment                                  |
 | `cancelUrl`  | `string`  | ❌       | URL to redirect to after cancelled payment                                   |
@@ -161,6 +162,11 @@ For production, set up webhooks in your Yoco Business Portal:
 1. Go to **Selling Online → Payment Gateway → Webhooks**
 2. Add webhook URL: `https://your-domain.com/hooks/payment/yoco_yoco`
 3. Select events: `payment.succeeded`, `payment.failed`
+4. Copy the signing secret (`whsec_...`) into the provider options as `webhookSecret`
+
+Webhooks are verified against the `webhook-id`, `webhook-timestamp` and `webhook-signature`
+headers (HMAC-SHA256, 3 minute tolerance). Without a `webhookSecret`, or with an invalid
+signature, the webhook is ignored and a warning is logged.
 
 ## Test Cards
 
